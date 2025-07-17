@@ -1,0 +1,8 @@
+#Ignore folders
+.Rproj.user/
+NBA_HOF-Predictor_files/
+
+#Ignore files
+.RData
+.Rhistory
+NBA-HOF-Predictor.html

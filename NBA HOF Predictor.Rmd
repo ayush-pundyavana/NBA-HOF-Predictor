@@ -1,0 +1,445 @@
+```{r}
+#importing libraries and setting seed
+library(rpart)
+library(e1071)
+library(ggplot2)
+library(patchwork)
+library(knitr)
+library(gt)
+library(dplyr)   #R package for data wrangling
+library(scales)
+library(rpart.plot)
+library(caret)
+library(pROC)
+
+set.seed(1357)
+```
+
+```{r}
+#importing dataset
+
+raw_data <- read.csv('C:/Users/Ayush/OneDrive/Desktop/Coding Projects/NBA/NBA_PLAYERS.csv')
+
+df1 <- raw_data
+
+#Organization
+df1$Active[df1$Active=='True'] = 1
+df1$Active[df1$Active=='False'] = 0
+
+df1$HOF[df1$HOF=='True']=1
+df1$HOF[df1$HOF=='False']=0
+
+df1$Active <- as.factor(df1$Active)
+df1$HOF <- as.factor(df1$HOF)
+df1$School <- as.factor(df1$School)
+
+#OUTPUT
+head(df1, 10)
+tail(df1, 10)
+```
+
+```{}
+```
+
+```{r}
+#Ordering based on the Final Year, and getting rid of missing HOF value
+df2 <- df1[order(df1$Final),]
+head(df2, 15)
+
+nrow(df2)
+
+df3 <- df2[is.na(df2$WS)==FALSE,]
+
+nrow(df3)
+```
+
+## DATA VISUALIZATION
+
+```{r}
+t1 <- table(df3$Active)
+t2 <- table(df3$HOF)
+t3 <- table(df3$HOF)/nrow(df2)
+
+t1 <- as.data.frame(t1)
+t2 <- as.data.frame(t2)
+t3 <- as.data.frame(t3)
+
+gt(t1) %>%
+  tab_header(title = "Active Players")
+gt(t2) %>%
+  tab_header(title = "HOF Players")
+gt(t3) %>%
+  tab_header(title = "HOF Players Proportion")
+
+
+#Looking at durations of players' careers
+ggplot(data = df3, aes(x=Final-Debut)) +
+  geom_histogram(bins=21, binwidth=1) +
+  labs(title = "Career Durations",
+       x="Duration",
+       y="Number of Players")
+
+#table showing top 20 players Duration-wise
+df3$Duration <- df3$Final - df3$Debut + 1
+df3[order(-(df3$Duration)),] %>% select(Name, Duration, Debut, Final, HOF) %>% head(30)
+
+#Looking at Height distribution
+ggplot(data = df3, aes(x = Height/12)) +
+  geom_histogram(binwidth=1/12) +
+  labs(title="Height Distribution in NBA",
+       x = "Height"
+  ) +
+  theme_classic()
+
+df3[order(df3$Height),] %>% select(Name, Height=Height/12, Duration, HOF) %>% head(30)
+
+#Looking at Weight distribution
+ggplot(df3, aes(x = Weight)) +
+  geom_histogram(binwidth=5) +
+  labs(title = "Weight Distribution in NBA",
+       x = "Weight"
+       )
+
+#Comparing Height vs. Weight
+df3_hw <- df3[is.na(df2$Height)==FALSE & is.na(df2$Weight)==FALSE,]
+
+ggplot(df3_hw, aes(x=Height + runif(nrow(df3_hw), -0.1, 0.1), y=Weight)) +
+  geom_point(alpha=.3) +
+  geom_smooth(method="lm", se = FALSE, color = "red")
+  labs(title = "Height and Weight",
+       x = "Height",
+       y= "Weight"
+       ) +
+  scale_x_continuous(labels = scales::label_number())
+
+ggplot(df3_hw, aes(x=Height + runif(nrow(df3_hw), -0.1, 0.1), y=Weight)) +
+  geom_bin_2d(bins=25) +
+  labs(title = "Height and Weight",
+       x = "Height",
+       y= "Weight"
+       ) +
+  scale_x_continuous(labels = scales::label_number()) +
+  geom_smooth(method="lm", se = FALSE, color = "red")
+
+ggplot(df3_hw, aes(x=Height + runif(nrow(df3_hw), -0.1, 0.1), y=Weight)) +
+  geom_density_2d() +
+  labs(title = "Height and Weight",
+       x = "Height",
+       y= "Weight"
+       ) +
+  scale_x_continuous(labels = scales::label_number())
+
+
+
+```
+```{r}
+colnames(df3)
+```
+
+
+```{r}
+#Making the training and testing datasets  --> first we want to test which model is the most accurate
+df4 <- 
+  df3 %>% 
+  filter(Final < 2021) %>% 
+  arrange(Name) %>%
+  select(-Name, -Birthday, -Active, -School, -Position)
+  
+training <- df4 %>% slice(1:floor(nrow(df4)*.8))
+testing <- df4 %>% slice(ceiling(nrow(df4)*.82):nrow(df4))
+
+cat("Total Observations: ", nrow(df4), "\n")
+cat("Total training data Observations: ", nrow(training), "\n")
+cat("Total testing data Observations: ", nrow(testing), "\n")
+cat("Split: ", (1-nrow(testing)/nrow(training)), "/", nrow(testing)/nrow(training), "\n")
+cat("HOF's in Training data", nrow(training[training$HOF == 1,]), "\n",
+    "HOF's in Testing data", nrow(testing[testing$HOF == 1,]), "\n")
+
+HOF_prop <- 32/143
+
+cat ("   Split: ", 1-HOF_prop, "/", HOF_prop)
+
+testing_class_split <- nrow(testing[])
+
+cat("")
+```
+
+```{r}
+#Control test
+df5 <- 
+  df4 %>% 
+  filter(Final < 2021) %>% 
+  select( Final,HOF)
+  
+training_0 <- df5 %>% slice(1:floor(nrow(df4)*.82))
+testing_0 <- df5 %>% slice(ceiling(nrow(df4)*.82):nrow(df4))
+
+
+#rpart model, not pruned
+tree <- rpart(training_0$HOF ~., data = training_0, method = 'class', control=rpart.control(cp=.01, minsplit=5))
+
+#rpart model, pruned
+best <- tree$cptable[which.min(tree$cptable[,"xerror"]),"CP"]
+pruned_tree <- prune(tree, best)
+
+#bayes decision model
+model <- naiveBayes(HOF ~ ., data = training_0)
+predictions <- predict(model, testing_0)
+
+matrix <- confusionMatrix(predictions, testing_0$HOF)
+print(matrix)
+
+
+rpart.plot(tree)
+pred_rpart <- predict(tree, newdata = testing_0, type = 'class')
+rpart_matrix <- confusionMatrix(pred_rpart, testing_0$HOF)
+print(rpart_matrix)
+
+rpart.plot(pruned_tree)
+pred_pruned_rpart <- predict(pruned_tree, newdata= testing_0, type='class')
+pruned_rpart_matrix <- confusionMatrix(pred_pruned_rpart, testing_0$HOF)
+print(pruned_rpart_matrix)
+
+```
+
+
+
+```{r}
+#Training models
+
+#rpart model, not pruned
+tree <- rpart(training$HOF ~., data = training, method = 'class', control=rpart.control(cp=.01, minsplit=5))
+
+#rpart model, pruned
+best <- tree$cptable[which.min(tree$cptable[,"xerror"]),"CP"]
+pruned_tree <- prune(tree, best)
+
+#bayes decision model
+model <- naiveBayes(HOF ~ ., data = training)
+predictions <- predict(model, testing)
+
+matrix <- confusionMatrix(predictions, testing$HOF)
+print(matrix)
+
+
+rpart.plot(tree)
+pred_rpart <- predict(tree, newdata = testing, type = 'class')
+rpart_matrix <- confusionMatrix(pred_rpart, testing$HOF)
+print(rpart_matrix)
+
+rpart.plot(pruned_tree)
+pred_pruned_rpart <- predict(pruned_tree, newdata= testing, type='class')
+pruned_rpart_matrix <- confusionMatrix(pred_pruned_rpart, testing$HOF)
+print(pruned_rpart_matrix)
+```
+```{r}
+head(df3)
+```
+
+
+
+```{r}
+#Looking at Player winshares
+theme_custom <- theme(
+
+  text = element_text(size = 12),
+
+  panel.grid = element_blank(),
+
+  panel.grid.major.y = element_line(colour = "#e3e1e1",
+
+  linetype = 2),
+
+  plot.title.position = 'plot',
+
+  legend.position = 'top',
+
+  legend.title = element_blank()
+
+  )
+
+
+ggplot(data = df3, aes(x=WS)) +
+  geom_density() +
+  labs(title = "Player Winshare Probability",
+       x = "Winshares",
+  ) +
+  scale_y_continuous(labels = label_number())
+
+ggplot(data = df3, aes(x=PTS)) +
+  geom_density() +
+  labs(title = "Player Points Probability",
+       x = "Points",
+  ) +
+  scale_y_continuous(labels = label_number()) +
+  theme_set(theme_minimal() + theme_custom)
+
+df4$HOF <- as.numeric(as.character(df4$HOF))
+ggplot(data = df4, aes(x=WS, y=HOF)) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
+  labs(title = "HOF based on Winshares",
+       x = "Winshares",
+       y = "HOF") +
+  theme_set(theme_minimal() + theme_custom)
+
+ggplot(data = df4, aes(x=PTS, y=HOF)) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
+  labs(title = "HOF based on Points",
+       x = "Points",
+       y = "HOF") +
+  theme_bw()
+
+df4$HOF <- as.factor(df4$HOF)
+
+#table showing top 20 players Winshare-wise
+df3[order(-df3$WS),] %>% select(Name,WS,HOF) %>% head(30) 
+
+#table showing top 20 players Points-wise
+df3[order(-df3$PTS),] %>% select(Name,PTS,HOF) %>% head(30) 
+
+
+```
+
+
+
+```{r}
+#Winshares and Points are definitely 2 of the biggest factors, so let's try with just these variables
+df6 <- 
+  df3 %>% 
+  filter(Final < 2021) %>% 
+  arrange(Name) %>%
+  select(WS, PTS, HOF)
+  
+training <- df6 %>% slice(1:floor(nrow(df4)*.82))
+testing <- df6 %>% slice(ceiling(nrow(df4)*.82):nrow(df4))
+
+
+
+#rpart model, not pruned
+tree <- rpart(training$HOF ~., data = training, method = 'class', control=rpart.control(cp=.01, minsplit=5))
+
+#rpart model, pruned
+best <- tree$cptable[which.min(tree$cptable[,"xerror"]),"CP"]
+pruned_tree <- prune(tree, best)
+
+#bayes decision model
+model <- naiveBayes(HOF ~ ., data = training)
+predictions <- predict(model, testing)
+
+matrix <- confusionMatrix(predictions, testing$HOF)
+print(matrix)
+
+
+rpart.plot(tree)
+pred_rpart <- predict(tree, newdata = testing, type = 'class')
+rpart_matrix <- confusionMatrix(pred_rpart, testing$HOF)
+print(rpart_matrix)
+
+rpart.plot(pruned_tree)
+pred_pruned_rpart <- predict(pruned_tree, newdata= testing, type='class')
+pruned_rpart_matrix <- confusionMatrix(pred_pruned_rpart, testing$HOF)
+print(pruned_rpart_matrix)
+```
+```{r}
+#TRY ASSISTS
+
+df4$HOF <- as.numeric(as.character(df4$HOF))
+
+ggplot(data = df4, aes(x=AST, y=HOF)) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
+  labs(title = "HOF based on Assists",
+       x = "Points",
+       y = "HOF") +
+  theme_bw()
+
+df4$HOF <- as.factor((df4$HOF))
+
+df3_one_pos <- df3[grepl(",", df3$Position)==FALSE,]
+
+ggplot(data = df3_one_pos, aes(x = AST, group=Position, fill=Position)) +
+  geom_density(alpha = .5) +
+  labs(title = "Assists based on Position",
+       x = "Assists",
+       y = "Density")
+  
+```
+
+```{r}
+#TRY GAMES
+df4$HOF <- as.numeric(as.character(df4$HOF))
+
+ggplot(data = df4, aes(x=G, y=HOF)) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
+  labs(title = "HOF based on Games Played",
+       x = "Games",
+       y = "HOF") +
+  theme_bw()
+
+df4$HOF <- as.factor((df4$HOF))
+```
+
+```{r}
+#TRY PER
+df4$HOF <- as.numeric(as.character(df4$HOF))
+
+ggplot(data = df4, aes(x=PER, y=HOF)) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
+  labs(title = "HOF based on PER",
+       x = "PER",
+       y = "HOF") +
+  theme_bw()
+
+df4$HOF <- as.factor((df4$HOF))
+
+ggplot(data = df3_one_pos, aes(x = PER, group=Position, fill=Position)) +
+  geom_density(alpha = .5) +
+  labs(title = "PER based on Position",
+       x = "PER",
+       y = "Density")
+
+```
+
+```{r}
+df8 <- 
+  df3 %>% 
+  filter(Final < 2021) %>% 
+  arrange(Name) %>%
+  select(WS, G, PER, HOF)
+  
+training <- df8 %>% slice(1:floor(nrow(df4)*.82))
+testing <- df8 %>% slice(ceiling(nrow(df4)*.82):nrow(df4))
+
+
+
+#rpart model, not pruned
+tree <- rpart(training$HOF ~., data = training, method = 'class', control=rpart.control(cp=.01, minsplit=5))
+
+#rpart model, pruned
+best <- tree$cptable[which.min(tree$cptable[,"xerror"]),"CP"]
+pruned_tree <- prune(tree, best)
+
+#bayes decision model
+model <- naiveBayes(HOF ~ ., data = training)
+predictions <- predict(model, testing)
+
+matrix <- confusionMatrix(predictions, testing$HOF)
+print(matrix)
+
+
+rpart.plot(tree)
+pred_rpart <- predict(tree, newdata = testing, type = 'class')
+rpart_matrix <- confusionMatrix(pred_rpart, testing$HOF)
+print(rpart_matrix)
+
+rpart.plot(pruned_tree)
+pred_pruned_rpart <- predict(pruned_tree, newdata= testing, type='class')
+pruned_rpart_matrix <- confusionMatrix(pred_pruned_rpart, testing$HOF)
+print(pruned_rpart_matrix)
+```
+
+
+
+
+
+
+
