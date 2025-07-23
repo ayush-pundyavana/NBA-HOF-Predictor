@@ -31,26 +31,130 @@ df1$HOF[df1$HOF=='False']=0
 
 df1$Active <- as.factor(df1$Active)
 df1$HOF <- as.factor(df1$HOF)
-df1$School <- as.factor(df1$School)
 
 #OUTPUT
 head(df1, 10)
 tail(df1, 10)
 ```
 
-```{}
+```{r}
+#Getting rid of missing HOF value
+df2 <- df1[is.na(df2$WS)==FALSE,]
+
+nrow(df1)
+nrow(df2)
+
+df1 <- df2
 ```
 
 ```{r}
-#Ordering based on the Final Year, and getting rid of missing HOF value
-df2 <- df1[order(df1$Final),]
-head(df2, 15)
+#Making School colunn binary
+df1$School[df1$School == ""] = 0
+df1$School[df1$School != "0"] = 1
+
+df1$School <- as.factor(df1$School)
+```
+
+```{r}
+df_missing_values <- 
+  df1 %>% filter(if_any(everything(), is.na))
+
+head(df_missing_values, 30)
+```
+
+```{r}
+colSums(is.na(df1))
+
+ggplot(data = df_missing_values, aes(x = Final)) +
+  geom_density() +
+  labs(title = "Final year of Players w/ Missing Stats",
+       x = "Final Year",
+       y = "Density") +
+  theme_bw()
+```
+
+```{r}
+#Get rid of FG3 and eFG.
+
+#Find out how to deal with PER, FT., and TRB
+PER_MV <- df_missing_values[is.na(df_missing_values$PER),]
+FT_MV <- df_missing_values[is.na(df_missing_values$FT.),]
+TRB_MV <- df_missing_values[is.na(df_missing_values$TRB),]
+
+ggplot(data = PER_MV, aes(x = Final)) +
+  geom_density() +
+  labs(title = "Final year of Players w/ Missing PER Stat",
+       x = "Final Year",
+       y = "Density") +
+  theme_bw()
+
+ggplot(data = FT_MV, aes(x = Final)) +
+  geom_density() +
+  labs(title = "Final year of Players w/ Missing FT% Stat",
+       x = "Final Year",
+       y = "Density") +
+  theme_bw()
+
+ggplot(data = TRB_MV, aes(x = Final)) +
+  geom_density() +
+  labs(title = "Final year of Players w/ Missing TRB Stat",
+       x = "Final Year",
+       y = "Density") +
+  theme_bw()
+
+
+PER_MV <-
+  PER_MV %>% arrange(Final)
+
+tail(PER_MV, 20)
+
+#Everyone with a final year under 1952 has a missing PER
+nrow(PER_MV) - 4
+nrow(df1[df1$Final <= 1951,])
+```
+```{r}
+full_data <- df1
+```
+
+
+```{r}
+#Fully getting rid of these columns,  they won't have much effect on Hall of Fame status
+df1 <- full_data %>% select(-FG3., -FT., -eFG.)
+
+#Get rid of players who retired in 1951 and older
+df1[df1$Final <= 1951 & as.numeric(as.character(df1$HOF)) == 1,]
+
+df2 <- df1[df1$Final > 1951,]
+
+nrow(df1)
+nrow(df2)
+```
+
+```{r}
+#Check the newly cleaned dataframe
+colSums(is.na(df2))
+
+FG_MV <- df2 %>% filter(is.na(FG.))
+
+#Players with 3 games or under often have missing stats. Let's remove players with 5 games or under
+finished_data <- df2 %>% filter(G > 5)
 
 nrow(df2)
+nrow(finished_data)
 
-df3 <- df2[is.na(df2$WS)==FALSE,]
+colSums(is.na(finished_data))
+```
 
-nrow(df3)
+```{r}
+#Finalizing the data cleaning
+df2 <- finished_data
+
+finished_data <- finished_data %>% filter(Name != "Dan King")
+
+nrow(df2)
+nrow(finished_data)
+
+colSums(is.na(finished_data))
 ```
 
 ## DATA VISUALIZATION
