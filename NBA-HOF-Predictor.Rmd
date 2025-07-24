@@ -18,7 +18,7 @@ set.seed(1357)
 ```{r}
 #importing dataset
 
-raw_data <- read.csv('C:/Users/Ayush/OneDrive/Desktop/Coding Projects/NBA/NBA_PLAYERS.csv')
+raw_data <- read.csv("C:/Users/Ayush/Documents/NBA/NBA_PLAYERS.csv")
 
 df1 <- raw_data
 
@@ -37,9 +37,11 @@ head(df1, 10)
 tail(df1, 10)
 ```
 
+##DATA CLEANING
+
 ```{r}
 #Getting rid of missing HOF value
-df2 <- df1[is.na(df2$WS)==FALSE,]
+df2 <- df1[is.na(df1$WS)==FALSE,]
 
 nrow(df1)
 nrow(df2)
@@ -56,6 +58,7 @@ df1$School <- as.factor(df1$School)
 ```
 
 ```{r}
+#Getting all of the observations with at least 1 missing value
 df_missing_values <- 
   df1 %>% filter(if_any(everything(), is.na))
 
@@ -63,8 +66,10 @@ head(df_missing_values, 30)
 ```
 
 ```{r}
+#Shows amount of missings in each column
 colSums(is.na(df1))
 
+#Finding which era's players have the most missing values (Older players)
 ggplot(data = df_missing_values, aes(x = Final)) +
   geom_density() +
   labs(title = "Final year of Players w/ Missing Stats",
@@ -74,8 +79,6 @@ ggplot(data = df_missing_values, aes(x = Final)) +
 ```
 
 ```{r}
-#Get rid of FG3 and eFG.
-
 #Find out how to deal with PER, FT., and TRB
 PER_MV <- df_missing_values[is.na(df_missing_values$PER),]
 FT_MV <- df_missing_values[is.na(df_missing_values$FT.),]
@@ -109,10 +112,11 @@ PER_MV <-
 tail(PER_MV, 20)
 
 #Everyone with a final year under 1952 has a missing PER
-nrow(PER_MV) - 4
+nrow(PER_MV) - 3
 nrow(df1[df1$Final <= 1951,])
 ```
 ```{r}
+#Archiving the data
 full_data <- df1
 ```
 
@@ -132,6 +136,7 @@ nrow(df2)
 
 ```{r}
 #Check the newly cleaned dataframe
+nrow(df2)
 colSums(is.na(df2))
 
 FG_MV <- df2 %>% filter(is.na(FG.))
@@ -139,7 +144,6 @@ FG_MV <- df2 %>% filter(is.na(FG.))
 #Players with 3 games or under often have missing stats. Let's remove players with 5 games or under
 finished_data <- df2 %>% filter(G > 5)
 
-nrow(df2)
 nrow(finished_data)
 
 colSums(is.na(finished_data))
@@ -148,8 +152,6 @@ colSums(is.na(finished_data))
 ```{r}
 #Finalizing the data cleaning
 df2 <- finished_data
-
-finished_data <- finished_data %>% filter(Name != "Dan King")
 
 nrow(df2)
 nrow(finished_data)
@@ -160,16 +162,22 @@ colSums(is.na(finished_data))
 ## DATA VISUALIZATION
 
 ```{r}
+df3 <- finished_data
+
 t1 <- table(df3$Active)
 t2 <- table(df3$HOF)
-t3 <- table(df3$HOF)/nrow(df2)
+t3 <- table(df3$HOF)/nrow(df3)
+t4 <- table(df3$Active)/nrow(df3)
 
 t1 <- as.data.frame(t1)
 t2 <- as.data.frame(t2)
 t3 <- as.data.frame(t3)
+t4 <- as.data.frame(t4)
 
 gt(t1) %>%
-  tab_header(title = "Active Players")
+  tab_header(title = "Active vs. Retired Players")
+gt(t4) %>%
+  tab_header(title = "Active vs. Retired Proportion Table")
 gt(t2) %>%
   tab_header(title = "HOF Players")
 gt(t3) %>%
