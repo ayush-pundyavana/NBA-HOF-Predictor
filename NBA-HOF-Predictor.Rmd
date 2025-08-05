@@ -405,9 +405,10 @@ ggplot(data = df3_one_pos, aes(x = PER, group=Position, fill=Position)) +
 ```
 
 ```{r}
+#Try Height and Weight, and Height-to-Weight Ratio
 df3$HOF <- as.numeric(as.character(df3$HOF))
 
-#Try Height and Weight, and Height-to-Weight Ratio
+#Height
 ggplot(data = df3, aes(x=Height, y=HOF)) +
   geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
   labs(title = "HOF based on Height",
@@ -415,12 +416,30 @@ ggplot(data = df3, aes(x=Height, y=HOF)) +
        y = "HOF Chance") +
   theme_bw()
 
-df3$HOF <- as.numeric(as.character(df3$HOF))
+#Weight
+ggplot(data = df3, aes(x=Weight, y=HOF)) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
+  labs(title = "HOF based on Weight",
+       x = "Weight",
+       y = "HOF Chance") +
+  theme_bw()
+
+
+#Height-Weight Ratio
+ggplot(data = df3, aes(x=Height/Weight, y=HOF)) +
+  geom_smooth(method = "glm", method.args = list(family = "binomial"), se = TRUE) +
+  labs(title = "HOF based on Height-Weight Ratio",
+       x = "Height-Weight Ratio",
+       y = "HOF Chance") +
+  theme_bw()
+
+df3$HOF <- as.factor(as.character(df3$HOF))
 ```
 
 
 
-#MODELS SETUP / DATA ANALYSIS
+
+#MODELS - RPART
 
 ```{r}
 #Making the training and testing datasets  --> first we want to test which model is the most accurate
@@ -428,11 +447,11 @@ df4 <-
   df3 %>% 
   filter(Final < 2021) %>% 
   arrange(Name) %>%
-  select(-Birthday, -Active, -School, -Position, -Debut)
+  select(-Birthday, -Active, -School, -Position, -Duration, -Height, -Weight)
   
-training <- df4 %>% slice(1:floor(nrow(df4)*.8))
-testing <- df4 %>% slice(ceiling(nrow(df4)*.82):nrow(df4))
-
+training <- df4 %>% select(-Name, -Final) %>% slice(1:floor(nrow(df4)*.8))
+testing <- df4 %>% select(-Name, -Final) %>% slice(ceiling(nrow(df4)*.82):nrow(df4))
+1
 cat("Total Observations: ", nrow(df4), "\n")
 cat("Total training data Observations: ", nrow(training), "\n")
 cat("Total testing data Observations: ", nrow(testing), "\n")
@@ -450,44 +469,95 @@ cat("")
 ```
 ```{r}
 colnames(df4)
+print("")
+colnames(training)
 ```
 
 
 ```{r}
-class_ratio <- nrow(training[training$HOF == 0,]) / nrow(training[training$HOF == 1,])
-weights <- ifelse(training$HOF == "1", class_ratio, 1)
+#caret control with resampling
 
-# Fit the initial tree with small cp to allow full growth
-tree_full <- rpart(HOF ~ ., data = training, method = "class",
-                   weights = weights,
-                   control = rpart.control(cp = 0.001))  # very small cp
+training$HOF <- factor(training$HOF, levels = c(0, 1), labels = c("NotHOF", "HOF"))
+testing$HOF  <- factor(testing$HOF,  levels = c(0, 1), labels = c("NotHOF", "HOF"))
 
-printcp(tree_full)
-plotcp(tree_full)
+ctrl <- trainControl(method = "repeatedcv",     # cross-validation
+                     number = 5,                 # 5-fold CV
+                     repeats = 3,                # repeat 3 times
+                     sampling = "smote",            # try "down" or "smote"
+                     classProbs = TRUE,          # needed for ROC
+                     summaryFunction = twoClassSummary)  # evaluates by ROC
 
-best_cp <- tree_full$cptable[which.min(tree_full$cptable[,"xerror"]), "CP"]
+tree_model <- train(HOF ~ ., 
+                    data = training,
+                    method = "rpart",
+                    trControl = ctrl,
+                    metric = "ROC",
+                    tuneLength = 10)
 
-# Prune the tree
-tree_pruned <- prune(tree_full, cp = best_cp)
+print(tree_model)
+plot(tree_model)
+```
 
-rpart.plot(tree_pruned, type = 2, extra = 106)
+```{r}
+# Predict classes
+tree_preds <- predict(tree_model, newdata = testing)
 
-# Predict and evaluate
-tree_preds_pruned <- predict(tree_pruned, testing, type = "class")
-confusionMatrix(tree_preds_pruned, testing$HOF, positive = "1")
+# Predict probabilities for ROC
+tree_probs <- predict(tree_model, newdata = testing, type = "prob")[, "HOF"]
+
+
+
 ```
 
 
 ```{r}
-df3$HOF_Prob <- predict(tree_pruned, df3, type = "prob")[, "1"]
+#RPART EVALUATION
 
-df3_ind_probs <- df3 %>% select(Name, HOF_Prob, WS, PTS, PER, G, Final) %>%
-  arrange(desc(HOF_Prob)) %>%
-  gt() %>%
-  tab_header(title = "Top 20 Players Most Likely to Make the Hall of Fame")
+#ROC CURVE
+library(pROC)
+roc_obj <- roc(testing$HOF, tree_probs, levels = c("NotHOF", "HOF"))
+plot(roc_obj)
+auc(roc_obj)
+
+#CONFUSION MATRIX
+conf_mat <- confusionMatrix(tree_preds, testing$HOF, positive = "HOF")
+print(conf_mat)
+
+#Key Metrics
+precision <- conf_mat$byClass["Precision"]
+recall <- conf_mat$byClass["Recall"]
+f1 <- conf_mat$byClass["F1"]
+cat("\nPrecision (How many predicted HOFs were correct?):", round(precision, 3),
+    "\nRecall (How many actual HOFs were correctly found?):", round(recall, 3),
+    "\nF1 Score (Balance of precision and recall):", round(f1, 3))
+
 
 
 ```
 
+```{r}
+#PR CURVE AND PR AUC
+library(PRROC)
+
+#Final summary
+cat("----- Model Evaluation (Imbalanced Classes) -----\n")
+cat("Precision: ", round(precision, 3), "     (How many predicted HOFs were correct?)", "\n")
+cat("Recall:    ", round(recall, 3), "     (How many actual HOFs were correctly found?) \n")
+cat("F1 Score   ", round(f1, 3),     "     (Balance of precision and recall) \n\n")
+cat("Baseline accuracy: ", mean(testing$HOF == "HOF"), "\n\n")
+cat("ROC AUC: ", round(auc(roc_obj), 3), " (Overall discriminative ability - prone to imbalance) \n")
+cat("PR AUC:  ", round(pr$auc.integral, 3), "  (Precision-Recall tradeoff - great for imbalance, compare to baseline accuracy)\n")
+
+# Create scores for PR AUC
+fg <- tree_probs[testing$HOF == "HOF"]
+bg <- tree_probs[testing$HOF == "NotHOF"]
+
+pr <- pr.curve(scores.class0 = fg, scores.class1 = bg, curve = TRUE)
+plot(pr, main = "Precision-Recall Curve")
+
+```
+
+
+#MODELS - XGBOOST: Gradient Boosted Trees
 
 
