@@ -583,17 +583,14 @@ grid_tune <- expand.grid(
 
 train_control <- trainControl(method = "cv",
                               number = 5,
+                              sampling = "smote",
                               classProbs = TRUE,
-                              summaryFunction = prSummary,
+                              summaryFunction = twoClassSummary,
                               verboseIter = TRUE,
-                              sampling = NULL,
                               allowParallel = TRUE
 )
 
-weights <- ifelse(training[,2] == 1,
-                  sum(training[,2]==0) / sum(training[,2]==1),
-                  1
-)
+
 
 xgb_tune <- train(x = training[,-2],
                   y = training[,2],
@@ -601,7 +598,7 @@ xgb_tune <- train(x = training[,-2],
                   tuneGrid = grid_tune,
                   method = "xgbTree",
                   verbose = TRUE,
-                  weights = weights
+                  metric = "ROC",
 )
 
 suppressWarnings({xgb_tune})
